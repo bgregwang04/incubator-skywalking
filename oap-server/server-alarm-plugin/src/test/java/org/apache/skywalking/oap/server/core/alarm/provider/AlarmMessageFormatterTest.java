@@ -19,7 +19,6 @@
 package org.apache.skywalking.oap.server.core.alarm.provider;
 
 import org.apache.skywalking.oap.server.core.alarm.MetaInAlarm;
-import org.apache.skywalking.oap.server.core.source.Scope;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -29,24 +28,34 @@ public class AlarmMessageFormatterTest {
         AlarmMessageFormatter formatter = new AlarmMessageFormatter("abc words {sdf");
         String message = formatter.format(new MetaInAlarm() {
 
-            @Override public Scope getScope() {
+            @Override
+            public String getScope() {
+                return "SERVICE";
+            }
+
+            @Override
+            public int getScopeId() {
+                return -1;
+            }
+
+            @Override
+            public String getName() {
                 return null;
             }
 
-            @Override public String getName() {
+            @Override
+            public String getMetricsName() {
                 return null;
             }
 
-            @Override public String getIndicatorName() {
-                return null;
+            @Override
+            public String getId0() {
+                return "";
             }
 
-            @Override public int getId0() {
-                return 0;
-            }
-
-            @Override public int getId1() {
-                return 0;
+            @Override
+            public String getId1() {
+                return "";
             }
         });
 
@@ -58,24 +67,34 @@ public class AlarmMessageFormatterTest {
         AlarmMessageFormatter formatter = new AlarmMessageFormatter("abc} words {name} - {id} .. {");
         String message = formatter.format(new MetaInAlarm() {
 
-            @Override public Scope getScope() {
-                return null;
+            @Override
+            public String getScope() {
+                return "SERVICE";
             }
 
-            @Override public String getName() {
+            @Override
+            public int getScopeId() {
+                return -1;
+            }
+
+            @Override
+            public String getName() {
                 return "service";
             }
 
-            @Override public String getIndicatorName() {
+            @Override
+            public String getMetricsName() {
                 return null;
             }
 
-            @Override public int getId0() {
-                return 1290;
+            @Override
+            public String getId0() {
+                return "1290";
             }
 
-            @Override public int getId1() {
-                return 0;
+            @Override
+            public String getId1() {
+                return "";
             }
         });
         Assert.assertEquals("abc} words service - 1290 .. {", message);

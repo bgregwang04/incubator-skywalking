@@ -20,24 +20,40 @@ package org.apache.skywalking.oap.server.core.source;
 
 import lombok.Getter;
 import lombok.Setter;
-import org.apache.skywalking.oap.server.core.source.annotation.SourceType;
 
-@SourceType
+import static org.apache.skywalking.oap.server.core.source.DefaultScopeDefine.ALL;
+
+@ScopeDeclaration(id = ALL, name = "All")
 public class All extends Source {
-    @Override public Scope scope() {
-        return Scope.All;
+    @Override
+    public int scope() {
+        return DefaultScopeDefine.ALL;
     }
 
-
-    @Override public String getEntityId() {
+    @Override
+    public String getEntityId() {
         return "";
     }
 
-    @Getter @Setter private String name;
-    @Getter @Setter private String serviceInstanceName;
-    @Getter @Setter private String endpointName;
-    @Getter @Setter private int latency;
-    @Getter @Setter private boolean status;
-    @Getter @Setter private int responseCode;
-    @Getter @Setter private RequestType type;
+    @Getter
+    @Setter
+    private String name;
+    @Getter
+    @Setter
+    private String serviceInstanceName;
+    @Getter
+    @Setter
+    private String endpointName;
+    @Getter
+    @Setter
+    private int latency;
+    @Getter
+    @Setter
+    private boolean status;
+    @Getter
+    @Setter
+    private int responseCode;
+    @Getter
+    @Setter
+    private RequestType type;
 }

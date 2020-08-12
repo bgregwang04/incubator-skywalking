@@ -2,122 +2,148 @@ Changes by Version
 ==================
 Release Notes.
 
-6.0.0-GA
+8.1.0
 ------------------
+#### Project
+* Support Kafka as an optional trace, JVM metrics, profiling snapshots and meter system data transport layer.
+* Support Meter system, including the native metrics APIs and the Spring Sleuth adoption.
+* Support JVM thread metrics.  
 
 #### Java Agent
-- Support gson plugin(optional).
-- Support canal plugin.
-- Fix missing ojdbc component id.
-- Fix dubbo plugin conflict.
-- Fix OpenTracing tag match bug.
-- Fix a missing check in ignore plugin.
+* [**Core**] Fix the concurrency access bug in the Concurrency ClassLoader Case. 
+* [**Core**] Separate the config of the plugins from the core level.
+* [**Core**] Support instrumented class cached in memory or file, to be compatible with other agents, such as Arthas.
+* Add logic endpoint concept. Could analysis any span or tags flagged by the logic endpoint.
+* Add Spring annotation component name for UI visualization only.
+* Add support to trace `Call procedures` in MySQL plugin.
+* Support GraphQL plugin.
+* Support Quasar fiber plugin.
+* Support InfluxDB java client plugin.
+* Support brpc java plugin
+* Support `ConsoleAppender` in the logback v1 plugin.
+* Enhance vert.x endpoint names.
+* Optimize the code to prevent mongo statements from being too long.
+* Fix WebFlux plugin concurrency access bug.
+* Fix ShardingSphere plugins internal conflicts.
+* Fix duplicated Spring MVC endpoint.
+* Fix lettuce plugin sometimes trace doesn‘t show span layer. 
+* Fix `@Tag` returnedObject bug.
 
-#### Backend
-- Adjust service inventory entity, to add properties.
-- Adjust service instance inventory entity, to add properties.
-- Add nodeType to service inventory entity.
-- Fix when operation name of local and exit spans in ref, the segment lost.
-- Fix the index names don't show right in logs. 
-- Fix wrong alarm text.
-- Add test case for span limit mechanism.
-- Add telemetry module and prometheus implementation, with grafana setting.
-- A refactor for register API in storage module.
-- Fix H2 and MySQL endpoint dependency map miss upstream side.
-- Optimize the inventory register and refactor the implementation.
-- Speed up the trace buffer read.
-- Fix and removed unnecessary inventory register operations.
+#### OAP-Backend
+* Support Jetty Server advanced configurations.
+* Support label based filter in the prometheus fetcher and OpenCensus receiver.
+* Support using k8s configmap as the configuration center.
+* Support OAP health check, and storage module health check.
+* Support sampling rate in the dynamic configuration.
+* Add `endpoint_relation_sla` and `endpoint_relation_percentile` for endpoint relationship metrics.
+* Add components for Python plugins, including Kafka, Tornado, Redis, Django, PyMysql.
+* Add components for Golang SDK.
+* Add Nacos 1.3.1 back as an optional cluster coordinator and dynamic configuration center.
+* Enhance the metrics query for ElasticSearch implementation to increase the stability.
+* Reduce the length of storage entity names in the self-observability for MySQL and TiDB storage.
+* Fix labels are missing in Prometheus analysis context.
+* Fix column length issue in MySQL/TiDB storage.
+* Fix no data in 2nd level aggregation in self-observability. 
+* Fix searchService bug in ES implementation.
+* Fix wrong validation of endpoint relation entity query.
+* Fix the bug caused by the OAL debug flag.
+* Fix endpoint dependency bug in MQ and uninstrumented proxy cases.
+* Fix time bucket conversion issue in the InfluxDB storage implementation.
+* Update k8s client to 8.0.0
 
 #### UI
-- Add new trace view.
-- Add word-break to tag value. 
+* Support endpoint dependency graph.
+* Support x-scroll of trace/profile page
+* Fix database selector issue.
+* Add the bar chart in the UI templates.
 
 #### Document
-- Add two startup modes document.
-- Add PHP agent links.
-- Add some cn documents.
-- Update year to 2019
-- User wall updated.
-- Fix a wrong description in `how-to-build` doc.
+* Update the user logo wall.
+* Add backend configuration vocabulary document.
+* Add agent installation doc for Tomcat9 on Windows.
+* Add istioctl ALS commands for the document.
+* Fix TTL documentation.
+* Add FAQ doc about thread instrumentation.
 
-All issues and pull requests are [here](https://github.com/apache/incubator-skywalking/milestone/30?closed=1)
+#### CVE
+* Fix fuzzy query sql injection in the MySQL/TiDB storage. 
 
-6.0.0-beta
+All issues and pull requests are [here](https://github.com/apache/skywalking/milestone/52?closed=1)
+
+8.0.1
 ------------------
 
-#### Protocol
-- Provide Trace Data Protocol v2
-- Provide SkyWalking Cross Process Propagation Headers Protocol v2.
+#### OAP-Backend
+* Fix `no-init` mode is not working in ElasticSearch storage.
+
+
+8.0.0
+------------------
+
+#### Project
+* v3 protocol is added and implemented. All previous releases are incompatible with 8.x releases.
+* Service, Instance, Endpoint register mechanism and inventory storage entities are removed.
+* New GraphQL query protocol is provided, the legacy procotol is still supported(plan to remove at the end of this year).
+* Support Prometheus network protocol. Metrics in Prometheus format could be transferred into SkyWalking.
+* Python agent provided.
+* All inventory caches have been removed.
+* Apache ShardingSphere(4.1.0, 4.1.1) agent plugin provided.
 
 #### Java Agent
-- Support Trace Data Protocol v2
-- Support SkyWalking Cross Process Propagation Headers Protocol v2.
-- Support SkyWalking Cross Process Propagation Headers Protocol v1 running in compatible way. Need declare open explicitly.
-- Support SpringMVC 5
-- Support webflux
-- Support a new way to override agent.config by system env. 
-- Span tag can override by explicit way.
-- Fix Spring Controller Inherit issue.
-- Fix ElasticSearch plugin NPE.
-- Fix agent classloader dead lock in certain situation.
-- Fix agent log typo.
-- Fix wrong component id in resettemplete plugin.
-- Fix use transform `ignore()` in wrong way.
-- Fix H2 query bug.
+* Add MariaDB plugin.
+* Vert.x plugin enhancement. More cases are covered.
+* Support v3 extension header.
+* Fix ElasticSearch 5.x plugin TransportClient error.
+* Support Correlation protocol v1.
+* Fix Finagle plugin bug, in processing Noop Span.
+* Make `CommandService` daemon to avoid blocking target application shutting down gracefully.
+* Refactor spring cloud gateway plugin and support tracing spring cloud gateway 2.2.x 
 
-#### Backend
-- Support Trace Data Protocol v2. And Trace Data Protocol v1 is still supported.
-- Support MySQL as storage.
-- Support TiDB as storage.
-- Support a new way to override application.yml by system env.
-- Support service instance and endpoint alarm.
-- Support namespace in istio receiver.
-- Support service throughput(cpm), successful rate(sla), avg response time and p99/p95/p90/p75/p50 response time.
-- Support backend trace sampling.
-- Support Zipkin format again.
-- Support init mode.
-- Support namespace in Zookeeper cluster management.
-- Support consul plugin in cluster module.
-- OAL generate tool has been integrated into main repo, in the maven `compile` stage.
-- Optimize trace paging query.
-- Fix trace query don't use fuzzy query in ElasticSearch storage.
-- Fix alarm can't be active in right way.
-- Fix unnecessary condition in database and cache number query.
-- Fix wrong namespace bug in ElasticSearch storage.
-- Fix `Remote clients selector error: / by zero `.
-- Fix segment TTL is not working.
+#### OAP-Backend
+* Support meter system for Prometheus adoption. In future releases, we will add native meter APIs and MicroMeter(Sleuth) system.
+* Support endpoint grouping.
+* Add **SuperDataSet** annotation for storage entity. 
+* Add **superDatasetIndexShardsFactor** in the ElasticSearch storage, to provide more shards for @SuperDataSet annotated entites. Typically TraceSegment.
+* Support alarm settings for relationship of service, instance, and endpoint level metrics.
+* Support alarm settings for database(conjecture node in tracing scenario).
+* Data Model could be added in the runtime, don't depend on the bootstrap sequence anymore.
+* Reduce the memory cost, due to no inventory caches.
+* No buffer files in tracing and service mesh cases.
+* New ReadWriteSafe cache implementation. Simplify codes.
+* Provide default way for metrics query, even the metrics doesn't exist.
+* New GraphQL query protocol is provided. Support the metrics type query.
+* Set up length rule of service, instance, and endpoint.
+* Adjust the default jks for ElasticSearch to empty.
+* Fix Apdex function integer overflow issue. 
+* Fix profile storage issue.
+* Fix TTL issue.
+* Fix H2 column type bug.
+* Add JRE 8-14 test for the backend. 
 
 #### UI
-- Support service throughput(cpm), successful rate(sla), avg response time and p99/p95/p90/p75/p50 response time.
-- Fix TopN endpoint link doesn't work right.
-- Fix trace stack style.
-- Fix CI.
+* UI dashboard is 100% configurable to adopt new metrics definited in the backend.
 
 #### Document
-- Add more agent setting documents.
-- Add more contribution documents.
-- Update user wall and powered-by page.
-- Add RocketBot UI project link in document.
+* Add v8 upgrade document.
+* Make the coverage accurate including UT and e2e tests.
+* Add miss doc about collecting parameters in the profiled traces.
 
-All issues and pull requests are [here](https://github.com/apache/incubator-skywalking/milestone/31?closed=1)
+#### CVE
+* Fix SQL Injection vulnerability in H2/MySQL implementation.
+* Upgrade Nacos to avoid the FastJson CVE in high frequency.
+* Upgrade jasckson-databind to 2.9.10. 
 
-6.0.0-alpha
+
+All issues and pull requests are [here](https://github.com/apache/skywalking/milestone/45?closed=1)
+
+7.0.0 release
 ------------------
+You could find all CHANGES of 7.0.0 at [here](https://github.com/apache/skywalking/blob/v7.0.0/CHANGES.md)
 
-SkyWalking 6 is totally new milestone for the project. At this point, we are not just a distributing
-tracing system with analysis and visualization capabilities. We are an **Observability Analysis Platform(OAL)**.
-
-The core and most important features in v6 are
-1. Support to collect telemetry data from different sources, such as multiple language agents and service mesh.
-1. Extensible stream analysis core. Make SQL and cache analysis available in core level, although haven't
-provided in this release.
-1. Provide **Observability Analysis Language(OAL)** to make analysis metric customization available.
-1. New GraphQL query protocol. Not binding with UI now.
-1. UI topology is better now.
-1. New alarm core provided. In alpha, only on service related metric.
-
-All issues and pull requests are [here](https://github.com/apache/incubator-skywalking/milestone/29?closed=1)
+6.x releases
+------------------
+You could find all CHANGES of 6.x at [here](https://github.com/apache/skywalking/blob/6.x/CHANGES.md)
 
 5.x releases
 ------------------
-You could find all CHANGES of 5.x at [here](https://github.com/apache/incubator-skywalking/blob/5.x/CHANGES.md)
+You could find all CHANGES of 5.x at [here](https://github.com/apache/skywalking/blob/5.x/CHANGES.md)

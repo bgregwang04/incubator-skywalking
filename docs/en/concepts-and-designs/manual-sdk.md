@@ -1,8 +1,8 @@
 # Manual instrument SDK
-We haven't provided any manual instrument SDK yet. 
+We have manual instrument SDK contributed from the community.
+- [Go2Sky](https://github.com/SkyAPM/go2sky). Go SDK follows SkyWalking format.
 
 Welcome to consider contributing in following languages:
-- Go
 - Python
 - C++
 
@@ -18,4 +18,4 @@ We are already in the middle of discussion, see https://github.com/census-instru
 After OC provides this officially, we can.
 
 ## How about Zipkin instrument SDKs?
-See [Zipkin receiver](trace-receiver.md) in backend section. It is different
+See [Zipkin receiver](../setup/backend/backend-receivers.md) in backend **Choose receiver** section. 

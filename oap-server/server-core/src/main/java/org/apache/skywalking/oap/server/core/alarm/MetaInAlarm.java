@@ -19,40 +19,42 @@
 package org.apache.skywalking.oap.server.core.alarm;
 
 import java.util.Objects;
-import org.apache.skywalking.oap.server.core.source.Scope;
 
 public abstract class MetaInAlarm {
-    public abstract Scope getScope();
+
+    public abstract String getScope();
+
+    public abstract int getScopeId();
 
     public abstract String getName();
 
-    public abstract String getIndicatorName();
+    public abstract String getMetricsName();
 
     /**
      * In most scopes, there is only id0, as primary id. Such as Service, Endpoint. But in relation, the ID includes
-     * two, actually. Such as ServiceRelation, id0 represents the source service id
+     * two, actually. Such as ServiceRelation, id0 represents the sourceScopeId service id
      *
      * @return the primary id.
      */
-    public abstract int getId0();
+    public abstract String getId0();
 
     /**
      * Only exist in multiple IDs case, Such as ServiceRelation, id1 represents the dest service id
-     *
-     * @return
      */
-    public abstract int getId1();
+    public abstract String getId1();
 
-    @Override public boolean equals(Object o) {
+    @Override
+    public boolean equals(Object o) {
         if (this == o)
             return true;
         if (o == null || getClass() != o.getClass())
             return false;
-        MetaInAlarm that = (MetaInAlarm)o;
-        return getId0() == that.getId0() && getId1() == that.getId1();
+        MetaInAlarm that = (MetaInAlarm) o;
+        return getId0().equals(that.getId0()) && getId1().equals(that.getId1());
     }
 
-    @Override public int hashCode() {
+    @Override
+    public int hashCode() {
         return Objects.hash(getId0(), getId1());
     }
 }

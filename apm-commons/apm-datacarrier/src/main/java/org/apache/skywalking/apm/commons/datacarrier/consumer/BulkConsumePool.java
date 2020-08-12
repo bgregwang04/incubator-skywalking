@@ -18,32 +18,25 @@
 
 package org.apache.skywalking.apm.commons.datacarrier.consumer;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Callable;
+import org.apache.skywalking.apm.commons.datacarrier.EnvUtil;
 import org.apache.skywalking.apm.commons.datacarrier.buffer.Channels;
 
 /**
  * BulkConsumePool works for consuming data from multiple channels(DataCarrier instances), with multiple {@link
  * MultipleChannelsConsumer}s.
- *
+ * <p>
  * In typical case, the number of {@link MultipleChannelsConsumer} should be less than the number of channels.
- *
- * @author wusheng
  */
 public class BulkConsumePool implements ConsumerPool {
     private List<MultipleChannelsConsumer> allConsumers;
     private volatile boolean isStarted = false;
 
     public BulkConsumePool(String name, int size, long consumeCycle) {
+        size = EnvUtil.getInt(name + "_THREAD", size);
         allConsumers = new ArrayList<MultipleChannelsConsumer>(size);
-        String threadNum = System.getenv(name + "_THREAD");
-        if (threadNum != null) {
-            try {
-                size = Integer.parseInt(threadNum);
-            } catch (NumberFormatException e) {
-
-            }
-        }
         for (int i = 0; i < size; i++) {
             MultipleChannelsConsumer multipleChannelsConsumer = new MultipleChannelsConsumer("DataCarrier." + name + ".BulkConsumePool." + i + ".Thread", consumeCycle);
             multipleChannelsConsumer.setDaemon(true);
@@ -51,7 +44,8 @@ public class BulkConsumePool implements ConsumerPool {
         }
     }
 
-    @Override synchronized public void add(String name, Channels channels, IConsumer consumer) {
+    @Override
+    synchronized public void add(String name, Channels channels, IConsumer consumer) {
         MultipleChannelsConsumer multipleChannelsConsumer = getLowestPayload();
         multipleChannelsConsumer.addNewTarget(channels, consumer);
     }
@@ -66,27 +60,29 @@ public class BulkConsumePool implements ConsumerPool {
         for (int i = 1; i < allConsumers.size(); i++) {
             MultipleChannelsConsumer option = allConsumers.get(i);
             if (option.size() < winner.size()) {
-                return option;
+                winner = option;
             }
         }
         return winner;
     }
 
     /**
-     * @param channels
-     * @return
+     *
      */
-    @Override public boolean isRunning(Channels channels) {
+    @Override
+    public boolean isRunning(Channels channels) {
         return isStarted;
     }
 
-    @Override public void close(Channels channels) {
+    @Override
+    public void close(Channels channels) {
         for (MultipleChannelsConsumer consumer : allConsumers) {
             consumer.shutdown();
         }
     }
 
-    @Override public void begin(Channels channels) {
+    @Override
+    public void begin(Channels channels) {
         if (isStarted) {
             return;
         }
@@ -110,16 +106,13 @@ public class BulkConsumePool implements ConsumerPool {
             this.consumeCycle = consumeCycle;
         }
 
-        @Override public ConsumerPool call() {
+        @Override
+        public ConsumerPool call() {
             return new BulkConsumePool(name, size, consumeCycle);
         }
 
         public static int recommendMaxSize() {
-            int processorNum = Runtime.getRuntime().availableProcessors();
-            if (processorNum > 1) {
-                processorNum -= 1;
-            }
-            return processorNum;
+            return Runtime.getRuntime().availableProcessors() * 2;
         }
     }
 }
