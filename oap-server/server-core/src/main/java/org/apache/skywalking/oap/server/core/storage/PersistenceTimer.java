@@ -18,113 +18,162 @@
 
 package org.apache.skywalking.oap.server.core.storage;
 
-import java.util.*;
-import java.util.concurrent.*;
-import org.apache.skywalking.apm.util.RunnableWithExceptionProtection;
-import org.apache.skywalking.oap.server.core.analysis.worker.*;
+import com.google.common.annotations.VisibleForTesting;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.skywalking.oap.server.core.CoreModuleConfig;
+import org.apache.skywalking.oap.server.core.analysis.worker.MetricsStreamProcessor;
+import org.apache.skywalking.oap.server.core.analysis.worker.PersistenceWorker;
+import org.apache.skywalking.oap.server.core.analysis.worker.TopNStreamProcessor;
+import org.apache.skywalking.oap.server.library.client.request.PrepareRequest;
 import org.apache.skywalking.oap.server.library.module.ModuleManager;
+import org.apache.skywalking.oap.server.library.util.CollectionUtils;
+import org.apache.skywalking.oap.server.library.util.RunnableWithExceptionProtection;
 import org.apache.skywalking.oap.server.telemetry.TelemetryModule;
-import org.apache.skywalking.oap.server.telemetry.api.*;
-import org.slf4j.*;
+import org.apache.skywalking.oap.server.telemetry.api.CounterMetrics;
+import org.apache.skywalking.oap.server.telemetry.api.HistogramMetrics;
+import org.apache.skywalking.oap.server.telemetry.api.MetricsCreator;
+import org.apache.skywalking.oap.server.telemetry.api.MetricsTag;
 
-/**
- * @author peng-yongsheng
- */
+@Slf4j
 public enum PersistenceTimer {
     INSTANCE;
-
-    private static final Logger logger = LoggerFactory.getLogger(PersistenceTimer.class);
-
-    private Boolean isStarted = false;
-    private final Boolean debug;
-    private CounterMetric errorCounter;
-    private HistogramMetric prepareLatency;
-    private HistogramMetric executeLatency;
+    @VisibleForTesting
+    boolean isStarted = false;
+    private CounterMetrics errorCounter;
+    private HistogramMetrics prepareLatency;
+    private HistogramMetrics executeLatency;
+    private HistogramMetrics allLatency;
+    private ExecutorService prepareExecutorService;
 
     PersistenceTimer() {
-        this.debug = System.getProperty("debug") != null;
     }
 
-    public void start(ModuleManager moduleManager) {
-        logger.info("persistence timer start");
-        //TODO timer value config
-//        final long timeInterval = EsConfig.Es.Persistence.Timer.VALUE * 1000;
-        final long timeInterval = 3;
-        IBatchDAO batchDAO = moduleManager.find(StorageModule.NAME).provider().getService(IBatchDAO.class);
+    public void start(ModuleManager moduleManager, CoreModuleConfig moduleConfig) {
+        log.info("persistence timer start");
+        IBatchDAO batchDAO =
+            moduleManager.find(StorageModule.NAME).provider().getService(IBatchDAO.class);
 
-        MetricCreator metricCreator = moduleManager.find(TelemetryModule.NAME).provider().getService(MetricCreator.class);
-        errorCounter = metricCreator.createCounter("persistence_timer_bulk_error_count", "Error execution of the prepare stage in persistence timer",
-            MetricTag.EMPTY_KEY, MetricTag.EMPTY_VALUE);
-        prepareLatency = metricCreator.createHistogramMetric("persistence_timer_bulk_prepare_latency", "Latency of the prepare stage in persistence timer",
-            MetricTag.EMPTY_KEY, MetricTag.EMPTY_VALUE);
-        executeLatency = metricCreator.createHistogramMetric("persistence_timer_bulk_execute_latency", "Latency of the execute stage in persistence timer",
-            MetricTag.EMPTY_KEY, MetricTag.EMPTY_VALUE);
+        MetricsCreator metricsCreator = moduleManager.find(TelemetryModule.NAME)
+                                                     .provider()
+                                                     .getService(MetricsCreator.class);
+        errorCounter = metricsCreator.createCounter(
+            "persistence_timer_bulk_error_count",
+            "Error execution of the prepare stage in persistence timer",
+            MetricsTag.EMPTY_KEY, MetricsTag.EMPTY_VALUE
+        );
+        prepareLatency = metricsCreator.createHistogramMetric(
+            "persistence_timer_bulk_prepare_latency",
+            "Latency of the prepare stage in persistence timer",
+            MetricsTag.EMPTY_KEY, MetricsTag.EMPTY_VALUE,
+            // 50ms -> 30s should be a proper range for the persistence timer prepare stage
+            .05, .075, .1, .25, .5, .75, 1, 3, 5, 10, 30
+        );
+        executeLatency = metricsCreator.createHistogramMetric(
+            "persistence_timer_bulk_execute_latency",
+            "Latency of the execute stage in persistence timer",
+            MetricsTag.EMPTY_KEY, MetricsTag.EMPTY_VALUE,
+            // 500ms -> 2min should be a proper range for the persistence timer execute stage
+            // 0.5s, 1s, 3s, 5s, 10s, 15s, 20s, 25s, 50s, 120s, Inf+
+            0.5, 1, 3, 5, 10, 15, 20, 25, 50, 120
+        );
+        allLatency = metricsCreator.createHistogramMetric(
+            "persistence_timer_bulk_all_latency", "Latency of the all stage in persistence timer",
+            MetricsTag.EMPTY_KEY, MetricsTag.EMPTY_VALUE,
+            // 500ms -> 2min should be a proper range for the persistence timer
+            0.5, 1, 3, 5, 10, 15, 20, 25, 50, 120
+        );
 
+        final AtomicInteger prepareThreadSeq = new AtomicInteger(0);
+        prepareExecutorService = Executors.newFixedThreadPool(
+            moduleConfig.getPrepareThreads(),
+            r -> new Thread(r, "PersistenceTimer-prepare-" + prepareThreadSeq.incrementAndGet()));
         if (!isStarted) {
-            Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(
-                new RunnableWithExceptionProtection(() -> extractDataAndSave(batchDAO),
-                    t -> logger.error("Extract data and save failure.", t)), 1, timeInterval, TimeUnit.SECONDS);
+            Executors.newSingleThreadScheduledExecutor(r -> new Thread(r, "PersistenceTimer"))
+                     .scheduleWithFixedDelay(
+                         new RunnableWithExceptionProtection(
+                             () -> extractDataAndSave(batchDAO).join(),
+                             t -> log.error("Extract data and save failure.", t)
+                         ), 5, moduleConfig.getPersistentPeriod(), TimeUnit.SECONDS
+                     );
 
             this.isStarted = true;
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private void extractDataAndSave(IBatchDAO batchDAO) {
-        if (logger.isDebugEnabled()) {
-            logger.debug("Extract data and save");
+    private CompletableFuture<Void> extractDataAndSave(IBatchDAO batchDAO) {
+        if (log.isDebugEnabled()) {
+            log.debug("Extract data and save");
         }
 
         long startTime = System.currentTimeMillis();
-        try {
-            HistogramMetric.Timer timer = prepareLatency.createTimer();
 
-            List batchAllCollection = new LinkedList();
-            try {
-                List<PersistenceWorker> persistenceWorkers = new ArrayList<>();
-                persistenceWorkers.addAll(IndicatorProcess.INSTANCE.getPersistentWorkers());
-                persistenceWorkers.addAll(RecordProcess.INSTANCE.getPersistentWorkers());
-                persistenceWorkers.addAll(TopNProcess.INSTANCE.getPersistentWorkers());
+        HistogramMetrics.Timer allTimer = allLatency.createTimer();
+        List<PersistenceWorker<? extends StorageData>> workers = new ArrayList<>();
+        workers.addAll(TopNStreamProcessor.getInstance().getPersistentWorkers());
+        workers.addAll(MetricsStreamProcessor.getInstance().getPersistentWorkers());
 
-                persistenceWorkers.forEach(worker -> {
-                    if (logger.isDebugEnabled()) {
-                        logger.debug("extract {} worker data and save", worker.getClass().getName());
-                    }
-
-                    if (worker.flushAndSwitch()) {
-                        List<?> batchCollection = worker.buildBatchCollection();
-
-                        if (logger.isDebugEnabled()) {
-                            logger.debug("extract {} worker data size: {}", worker.getClass().getName(), batchCollection.size());
+        // The flush of every worker that had something to write, completed when the storage has answered.
+        final List<CompletableFuture<Void>> flushes = new CopyOnWriteArrayList<>();
+        final CompletableFuture<Void> submitted =
+            CompletableFuture.allOf(workers.stream().map(worker -> {
+                return CompletableFuture.runAsync(() -> {
+                    List<PrepareRequest> innerPrepareRequests;
+                    // Prepare stage
+                    try (HistogramMetrics.Timer ignored = prepareLatency.createTimer()) {
+                        if (log.isDebugEnabled()) {
+                            log.debug(
+                                "extract {} worker data and save",
+                                worker.getClass().getName()
+                            );
                         }
-                        batchAllCollection.addAll(batchCollection);
+
+                        innerPrepareRequests = worker.buildBatchRequests();
+
+                        worker.endOfRound();
                     }
-                });
 
-                if (debug) {
-                    logger.info("build batch persistence duration: {} ms", System.currentTimeMillis() - startTime);
-                }
-            } finally {
-                timer.finish();
-            }
+                    if (CollectionUtils.isEmpty(innerPrepareRequests)) {
+                        return;
+                    }
 
-            HistogramMetric.Timer executeLatencyTimer = executeLatency.createTimer();
-            try {
-                batchDAO.batchPersistence(batchAllCollection);
-            } finally {
-                executeLatencyTimer.finish();
-            }
-        } catch (Throwable e) {
-            errorCounter.inc();
-            logger.error(e.getMessage(), e);
-        } finally {
-            if (logger.isDebugEnabled()) {
-                logger.debug("persistence data save finish");
-            }
-        }
+                    // Execution stage
+                    HistogramMetrics.Timer executeLatencyTimer = executeLatency.createTimer();
+                    flushes.add(batchDAO.flush(innerPrepareRequests)
+                                        .whenComplete(($1, $2) -> executeLatencyTimer.close()));
+                }, prepareExecutorService);
+            }).toArray(CompletableFuture[]::new));
 
-        if (debug) {
-            logger.info("batch persistence duration: {} ms", System.currentTimeMillis() - startTime);
-        }
+        // A round is over when the storage has answered for every request of it, not when the requests are
+        // queued. The next round is scheduled from the end of this one, and the persistence session cache is
+        // filled by the storage's callback on the answer: a round that ended at queueing let the next one find
+        // a metric absent from the cache, take its minute for a new one and write it with only its own points
+        // over the write still in flight. endOfFlush tells a storage that queues into a bulk to send the round
+        // now, so the wait is one round trip and not the bulk's own interval; it runs even when a worker's
+        // prepare stage failed, so what the other workers queued still goes out.
+        final CompletableFuture<Void> future = submitted
+            .whenComplete((unused, throwable) -> batchDAO.endOfFlush())
+            .thenCompose(unused -> CompletableFuture.allOf(flushes.stream().toArray(CompletableFuture[]::new)));
+        future.whenComplete((unused, throwable) -> {
+            allTimer.close();
+            if (log.isDebugEnabled()) {
+                log.debug(
+                    "Batch persistence duration: {} ms",
+                    System.currentTimeMillis() - startTime
+                );
+            }
+            if (throwable != null) {
+                errorCounter.inc();
+                log.error(throwable.getMessage(), throwable);
+            }
+        });
+        return future;
     }
 }

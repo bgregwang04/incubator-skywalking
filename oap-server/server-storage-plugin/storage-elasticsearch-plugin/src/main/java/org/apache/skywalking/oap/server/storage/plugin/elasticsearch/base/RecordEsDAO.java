@@ -20,38 +20,32 @@ package org.apache.skywalking.oap.server.storage.plugin.elasticsearch.base;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.Optional;
+
 import org.apache.skywalking.oap.server.core.analysis.record.Record;
-import org.apache.skywalking.oap.server.core.storage.*;
-import org.apache.skywalking.oap.server.core.storage.type.StorageDataType;
+import org.apache.skywalking.oap.server.core.storage.IRecordDAO;
+import org.apache.skywalking.oap.server.core.storage.model.Model;
+import org.apache.skywalking.oap.server.core.storage.type.StorageBuilder;
 import org.apache.skywalking.oap.server.library.client.elasticsearch.ElasticSearchClient;
-import org.elasticsearch.action.index.IndexRequest;
-import org.elasticsearch.common.xcontent.*;
+import org.apache.skywalking.oap.server.library.client.request.InsertRequest;
 
-/**
- * @author peng-yongsheng
- */
-public class RecordEsDAO extends EsDAO implements IRecordDAO<IndexRequest> {
-
+public class RecordEsDAO extends EsDAO implements IRecordDAO {
     private final StorageBuilder<Record> storageBuilder;
 
-    public RecordEsDAO(ElasticSearchClient client, StorageBuilder<Record> storageBuilder) {
+    public RecordEsDAO(ElasticSearchClient client,
+                       StorageBuilder<Record> storageBuilder) {
         super(client);
         this.storageBuilder = storageBuilder;
     }
 
-    @Override public IndexRequest prepareBatchInsert(String modelName, Record record) throws IOException {
-        Map<String, Object> objectMap = storageBuilder.data2Map(record);
-
-        XContentBuilder builder = XContentFactory.jsonBuilder().startObject();
-        for (String key : objectMap.keySet()) {
-            Object value = objectMap.get(key);
-            if (value instanceof StorageDataType) {
-                builder.field(key, ((StorageDataType)value).toStorageData());
-            } else {
-                builder.field(key, value);
-            }
-        }
-        builder.endObject();
-        return getClient().prepareInsert(modelName, record.id(), builder);
+    @Override
+    public InsertRequest prepareBatchInsert(Model model, Record record) throws IOException {
+        final ElasticSearchConverter.ToStorage toStorage = new ElasticSearchConverter.ToStorage(model.getName());
+        storageBuilder.entity2Storage(record, toStorage);
+        Map<String, Object> builder = IndexController.INSTANCE.appendTableColumn(model, toStorage.obtain());
+        String modelName = TimeSeriesUtils.writeIndexName(model, record.getTimeBucket());
+        String id = IndexController.INSTANCE.generateDocId(model, record.id().build());
+        Optional<String> routingValue = RoutingUtils.getRoutingValue(model, toStorage);
+        return getClient().prepareInsert(modelName, id, routingValue, builder);
     }
 }

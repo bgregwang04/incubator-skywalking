@@ -14,27 +14,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM openjdk:8-jre-alpine
+ARG BASE_IMAGE='eclipse-temurin:25-jre'
 
-ENV DIST_NAME=skywalking \
-    JAVA_OPTS=" -Xms256M "
+FROM $BASE_IMAGE
 
-# Install required packages
-RUN apk add --no-cache \
-    bash
+ENV SKYWALKING_HOME=/skywalking
 
-COPY "$DIST_NAME.tar.gz" /
+ENV PATH=$SKYWALKING_HOME/bin:$PATH
+
+WORKDIR $SKYWALKING_HOME
+
+ENV JAVA_OPTS=" -Xms2G "
+
+ARG DIST
+
+COPY "$DIST" .
 
 RUN set -ex; \
-    tar -xzf "$DIST_NAME.tar.gz"; \
-    rm -rf "$DIST_NAME.tar.gz"; rm -rf "$DIST_NAME/config/log4j2.xml"; \
-    rm -rf "$DIST_NAME/bin"; rm -rf "$DIST_NAME/webapp"; rm -rf "$DIST_NAME/agent";
-
-WORKDIR $DIST_NAME
+    tar -xzf "$DIST" --strip 1; \
+    rm -rf "$DIST"; \
+    rm -rf "config/log4j2.xml"; \
+    rm -rf "bin"; \
+    rm -rf "webapp"; \
+    rm -rf "agent"; \
+    mkdir "bin";
 
 COPY log4j2.xml config/
 COPY docker-entrypoint.sh .
 
-EXPOSE 12800 11800
+RUN mkdir ext-config; \
+    mkdir ext-libs;
 
-ENTRYPOINT ["sh", "docker-entrypoint.sh"]
+EXPOSE 12800 11800 1234
+
+ENTRYPOINT ["bash", "docker-entrypoint.sh"]

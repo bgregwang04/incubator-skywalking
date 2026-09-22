@@ -18,11 +18,10 @@
 
 package org.apache.skywalking.oap.server.core.remote.client;
 
+import io.grpc.ManagedChannel;
+import javax.annotation.Nullable;
 import org.apache.skywalking.oap.server.core.remote.data.StreamData;
 
-/**
- * @author peng-yongsheng
- */
 public interface RemoteClient extends Comparable<RemoteClient> {
 
     Address getAddress();
@@ -31,5 +30,11 @@ public interface RemoteClient extends Comparable<RemoteClient> {
 
     void close();
 
-    void push(int nextWorkerId, StreamData streamData);
+    void push(String nextWorkerName, StreamData streamData);
+
+    /**
+     * Get the underlying gRPC channel. It may return null if the remote client is self.
+     */
+    @Nullable
+    ManagedChannel getChannel();
 }

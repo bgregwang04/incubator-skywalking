@@ -1,3 +1,5 @@
+
+#!/bin/sh
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -14,15 +16,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#!/bin/bash
+set -e
 
-set -ex
+echo "[Entrypoint] Apache SkyWalking Docker Image"
 
-CLASSPATH="config:$CLASSPATH"
+EXT_LIB_DIR=/skywalking/ext-libs
+EXT_CONFIG_DIR=/skywalking/ext-config
+
+# Override configuration files
+if [ "$(ls -A $EXT_CONFIG_DIR)" ]; then
+  cp -vfRL ${EXT_CONFIG_DIR}/* config/
+fi
+
+if [ -z "$CLASSPATH" ]; then
+  CLASSPATH="config"
+else
+  CLASSPATH="config:$CLASSPATH"
+fi
+
 for i in oap-libs/*.jar
 do
     CLASSPATH="$i:$CLASSPATH"
 done
+for i in "${EXT_LIB_DIR}"/*.jar
+do
+    CLASSPATH="$i:$CLASSPATH"
+done
 
-exec java  -XX:+PrintFlagsFinal -XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap \
-     ${JAVA_OPTS} -classpath $CLASSPATH org.apache.skywalking.oap.server.starter.OAPServerStartUp "$@"
+set -ex
+
+exec java ${JAVA_OPTS} -classpath ${CLASSPATH} org.apache.skywalking.oap.server.starter.OAPServerStartUp "$@"

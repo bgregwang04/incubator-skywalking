@@ -18,27 +18,57 @@
 
 package org.apache.skywalking.oap.server.core.source;
 
+import com.google.gson.JsonObject;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.skywalking.oap.server.core.analysis.IDManager;
 
-/**
- * @author: liuhaoyang
- */
+import static org.apache.skywalking.oap.server.core.source.DefaultScopeDefine.DATABASE_ACCESS;
+import static org.apache.skywalking.oap.server.core.source.DefaultScopeDefine.SERVICE_CATALOG_NAME;
+
+@ScopeDeclaration(id = DATABASE_ACCESS, name = "DatabaseAccess", catalog = SERVICE_CATALOG_NAME)
+@ScopeDefaultColumn.VirtualColumnDefinition(fieldName = "entityId", columnName = "entity_id", isID = true, type = String.class)
 public class DatabaseAccess extends Source {
 
     @Override
-    public Scope scope() {
-        return Scope.DatabaseAccess;
+    public int scope() {
+        return DefaultScopeDefine.DATABASE_ACCESS;
     }
 
     @Override
     public String getEntityId() {
-        return String.valueOf(id);
+        if (entityId == null) {
+            entityId = IDManager.ServiceID.buildId(name, false);
+        }
+        return entityId;
     }
 
-    @Getter @Setter private long id;
-    @Getter @Setter private String name;
-    @Getter @Setter private int databaseTypeId;
-    @Getter @Setter private int latency;
-    @Getter @Setter private boolean status;
+    private String entityId;
+
+    @Getter
+    @Setter
+    @ScopeDefaultColumn.DefinedByField(columnName = "name", requireDynamicActive = true)
+    private String name;
+    @Getter
+    @Setter
+    private int databaseTypeId;
+    @Getter
+    @Setter
+    private int latency;
+    @Getter
+    @Setter
+    private boolean status;
+
+    @Override
+    public String toJson() {
+        final JsonObject obj = new JsonObject();
+        obj.addProperty("scope", scope());
+        obj.addProperty("entityId", getEntityId());
+        obj.addProperty("timeBucket", getTimeBucket());
+        obj.addProperty("name", name);
+        obj.addProperty("databaseTypeId", databaseTypeId);
+        obj.addProperty("latency", latency);
+        obj.addProperty("status", status);
+        return obj.toString();
+    }
 }

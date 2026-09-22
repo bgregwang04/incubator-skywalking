@@ -18,31 +18,90 @@
 
 package org.apache.skywalking.oap.server.storage.plugin.elasticsearch.base;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.skywalking.library.elasticsearch.exception.ResponseException;
+import org.apache.skywalking.oap.server.core.analysis.DownSampling;
 import org.apache.skywalking.oap.server.core.storage.IHistoryDeleteDAO;
+import org.apache.skywalking.oap.server.core.storage.model.Model;
 import org.apache.skywalking.oap.server.library.client.elasticsearch.ElasticSearchClient;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.joda.time.DateTime;
 
-import java.io.IOException;
-
-
-/**
- * @author peng-yongsheng
- */
+@Slf4j
 public class HistoryDeleteEsDAO extends EsDAO implements IHistoryDeleteDAO {
-
-    private static final Logger logger = LoggerFactory.getLogger(HistoryDeleteEsDAO.class);
+    private final Map<String, Long> indexLatestSuccess;
 
     public HistoryDeleteEsDAO(ElasticSearchClient client) {
         super(client);
+        this.indexLatestSuccess = new HashMap<>();
     }
 
     @Override
-    public void deleteHistory(String modelName, String timeBucketColumnName, Long timeBucketBefore) throws IOException {
+    public void deleteHistory(Model model, String timeBucketColumnName, int ttl) {
         ElasticSearchClient client = getClient();
-        int statusCode = client.delete(modelName, timeBucketColumnName, timeBucketBefore);
-        if (logger.isDebugEnabled()) {
-            logger.debug("Delete history from {} index, status code {}", client.formatIndexName(modelName), statusCode);
+
+        if (!model.isRecord()) {
+            if (!DownSampling.Minute.equals(model.getDownsampling())) {
+                /*
+                 * In ElasticSearch storage, the TTL triggers the index deletion directly.
+                 * As all metrics data in different down sampling rule of one day are in the same index, the deletion operation
+                 * is only required to run once.
+                 */
+                return;
+            }
         }
+        long deadline = Long.parseLong(new DateTime().plusDays(-ttl).toString("yyyyMMdd"));
+        String tableName = IndexController.INSTANCE.getTableName(model);
+        Long latestSuccessDeadline = this.indexLatestSuccess.get(model.getName());
+        if (latestSuccessDeadline != null && deadline <= latestSuccessDeadline) {
+            if (log.isDebugEnabled()) {
+                log.debug("Index = {} already deleted, skip, deadline = {}, ttl = {}", tableName, deadline, ttl);
+            }
+            return;
+        }
+
+        String latestIndex = TimeSeriesUtils.latestWriteIndexName(model);
+        if (!client.isExistsIndex(latestIndex)) {
+            try {
+                client.createIndex(latestIndex);
+                if (log.isDebugEnabled()) {
+                    log.debug("Latest index = {} is not exist, create.", latestIndex);
+                }
+            } catch (ResponseException e) {
+                if (e.getStatusCode() == 400 && client.isExistsIndex(latestIndex)) {
+                    if (log.isDebugEnabled()) {
+                        log.debug(
+                            "Failed to create index {}, index is already created.", latestIndex);
+                    }
+                } else {
+                    throw e;
+                }
+            }
+        }
+
+        Collection<String> indices = client.retrievalIndexByAliases(tableName);
+
+        if (log.isDebugEnabled()) {
+            log.debug("Deadline = {}, indices = {}, ttl = {}", deadline, indices, ttl);
+        }
+
+        List<String> prepareDeleteIndexes = new ArrayList<>();
+        for (String index : indices) {
+            long timeSeries = TimeSeriesUtils.isolateTimeFromIndexName(index);
+            if (deadline >= timeSeries) {
+                prepareDeleteIndexes.add(index);
+            }
+        }
+        if (log.isDebugEnabled()) {
+            log.debug("Indices to be deleted: {}", prepareDeleteIndexes);
+        }
+        for (String prepareDeleteIndex : prepareDeleteIndexes) {
+            client.deleteByIndexName(prepareDeleteIndex);
+        }
+        this.indexLatestSuccess.put(tableName, deadline);
     }
 }

@@ -18,20 +18,21 @@
 
 package org.apache.skywalking.oap.server.library.module;
 
-import java.lang.reflect.Field;
-import java.util.*;
-import org.slf4j.*;
+import java.lang.reflect.InvocationTargetException;
+import java.util.ServiceLoader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import static org.apache.skywalking.oap.server.library.util.YamlConfigLoaderUtils.copyProperties;
 
 /**
  * A module definition.
- *
- * @author wu-sheng, peng-yongsheng
  */
 public abstract class ModuleDefine implements ModuleProviderHolder {
 
-    private static final Logger logger = LoggerFactory.getLogger(ModuleDefine.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(ModuleDefine.class);
 
-    private final LinkedList<ModuleProvider> loadedProviders = new LinkedList<>();
+    private ModuleProvider loadedProvider = null;
 
     private final String name;
 
@@ -59,91 +60,64 @@ public abstract class ModuleDefine implements ModuleProviderHolder {
      * @throws ProviderNotFoundException when even don't find a single one providers.
      */
     void prepare(ModuleManager moduleManager,
-        ApplicationConfiguration.ModuleConfiguration configuration) throws ProviderNotFoundException, ServiceNotProvidedException, ModuleConfigException, ModuleStartException {
-        ServiceLoader<ModuleProvider> moduleProviderLoader = ServiceLoader.load(ModuleProvider.class);
-        boolean providerExist = false;
+                 ApplicationConfiguration.ModuleConfiguration configuration,
+                 ServiceLoader<ModuleProvider> moduleProviderLoader,
+                 TerminalFriendlyTable bootingParameters)
+        throws ProviderNotFoundException, ServiceNotProvidedException, ModuleConfigException, ModuleStartException {
         for (ModuleProvider provider : moduleProviderLoader) {
             if (!configuration.has(provider.name())) {
                 continue;
             }
 
-            providerExist = true;
             if (provider.module().equals(getClass())) {
-                ModuleProvider newProvider;
-                try {
-                    newProvider = provider.getClass().newInstance();
-                } catch (InstantiationException | IllegalAccessException e) {
-                    throw new ProviderNotFoundException(e);
-                }
-                newProvider.setManager(moduleManager);
-                newProvider.setModuleDefine(this);
-                loadedProviders.add(newProvider);
-            }
-        }
-
-        if (!providerExist) {
-            throw new ProviderNotFoundException(this.name() + " module no provider exists.");
-        }
-
-        for (ModuleProvider moduleProvider : loadedProviders) {
-            logger.info("Prepare the {} provider in {} module.", moduleProvider.name(), this.name());
-            try {
-                copyProperties(moduleProvider.createConfigBeanIfAbsent(), configuration.getProviderConfiguration(moduleProvider.name()), this.name(), moduleProvider.name());
-            } catch (IllegalAccessException e) {
-                throw new ModuleConfigException(this.name() + " module config transport to config bean failure.", e);
-            }
-            moduleProvider.prepare();
-        }
-    }
-
-    private void copyProperties(ModuleConfig dest, Properties src, String moduleName,
-        String providerName) throws IllegalAccessException {
-        if (dest == null) {
-            return;
-        }
-        Enumeration<?> propertyNames = src.propertyNames();
-        while (propertyNames.hasMoreElements()) {
-            String propertyName = (String)propertyNames.nextElement();
-            Class<? extends ModuleConfig> destClass = dest.getClass();
-
-            try {
-                Field field = getDeclaredField(destClass, propertyName);
-                field.setAccessible(true);
-                field.set(dest, src.get(propertyName));
-            } catch (NoSuchFieldException e) {
-                logger.warn(propertyName + " setting is not supported in " + providerName + " provider of " + moduleName + " module");
-            }
-        }
-    }
-
-    private Field getDeclaredField(Class<?> destClass, String fieldName) throws NoSuchFieldException {
-        if (destClass != null) {
-            Field[] fields = destClass.getDeclaredFields();
-            for (Field field : fields) {
-                if (field.getName().equals(fieldName)) {
-                    return field;
+                if (loadedProvider == null) {
+                    loadedProvider = provider;
+                    loadedProvider.setManager(moduleManager);
+                    loadedProvider.setModuleDefine(this);
+                    loadedProvider.setBootingParameters(bootingParameters);
+                } else {
+                    throw new DuplicateProviderException(
+                        this.name() + " module has one " + loadedProvider.name() + "[" + loadedProvider
+                            .getClass()
+                            .getName() + "] provider already, " + provider.name() + "[" + provider.getClass()
+                                                                                                  .getName() + "] is defined as 2nd provider.");
                 }
             }
-            return getDeclaredField(destClass.getSuperclass(), fieldName);
+
         }
 
-        throw new NoSuchFieldException();
+        if (loadedProvider == null) {
+            throw new ProviderNotFoundException(this.name() + " module no provider found.");
+        }
+
+        LOGGER.info("Prepare the {} provider in {} module.", loadedProvider.name(), this.name());
+        try {
+            final ModuleProvider.ConfigCreator creator = loadedProvider.newConfigCreator();
+            if (creator != null) {
+                final Class typeOfConfig = creator.type();
+                if (typeOfConfig != null) {
+                    final ModuleConfig config = (ModuleConfig) typeOfConfig.getDeclaredConstructor().newInstance();
+                    copyProperties(
+                        config,
+                        configuration.getProviderConfiguration(loadedProvider.name()), this.name(),
+                        loadedProvider.name()
+                    );
+                    creator.onInitialized(config);
+                }
+            }
+        } catch (IllegalAccessException | NoSuchMethodException | InvocationTargetException |
+                 InstantiationException e) {
+            throw new ModuleConfigException(this.name() + " module config transport to config bean failure.", e);
+        }
+        loadedProvider.prepare();
     }
 
-    /**
-     * @return providers of this module
-     */
-    final List<ModuleProvider> providers() {
-        return loadedProviders;
-    }
-
-    @Override public final ModuleProvider provider() throws DuplicateProviderException, ProviderNotFoundException {
-        if (loadedProviders.size() > 1) {
-            throw new DuplicateProviderException(this.name() + " module exist " + loadedProviders.size() + " providers");
-        } else if (loadedProviders.size() == 0) {
+    @Override
+    public final ModuleProvider provider() throws DuplicateProviderException, ProviderNotFoundException {
+        if (loadedProvider == null) {
             throw new ProviderNotFoundException("There is no module provider in " + this.name() + " module!");
         }
 
-        return loadedProviders.getFirst();
+        return loadedProvider;
     }
 }
